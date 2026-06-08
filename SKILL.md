@@ -7,7 +7,17 @@ description: Analyze Java Spring backend code changes for impact scope, regressi
 
 Use this skill to analyze the impact scope of backend code changes before testing, review, or client synchronization. Its primary goal is to identify whether new requirements, bug fixes, field changes, method logic changes, or new methods affect existing online functionality and what regression testing is needed. Code quality review is secondary.
 
-## **Supported Commands**
+## **How To Invoke**
+
+Any AI agent can use this skill by reading this file and following the workflow.
+
+Suggested prompts:
+
+- `按照 API Change Guard 的 SKILL.md，分析当前 git diff`
+- `按照 API Change Guard 的 SKILL.md，分析这个 Controller 的接口影响`
+- `按照 API Change Guard 的 SKILL.md，分析指定接口路径的变更影响`
+
+Cursor users may also use:
 
 - `/api-change-guard analyze diff`
 - `/api-change-guard analyze controller <ControllerPath>`
@@ -16,7 +26,7 @@ Use this skill to analyze the impact scope of backend code changes before testin
 
 ## **Workflow**
 
-1. Determine the command type.
+1. Determine the command type or user intent.
 2. Collect Git evidence from the repository root:
   - Diff command: `git diff -- '*.java'`
   - Staged diff command: `git diff --cached -- '*.java'`
@@ -25,15 +35,17 @@ Use this skill to analyze the impact scope of backend code changes before testin
 3. Exclude `src/test/`**, `*Test.java`, and test-only diffs.
 4. Group changed Java files by the priority and threshold rules below.
 5. Read relevant Controller / DTO / Mapper / Convert / Feign / Logic files according to the large diff limits and API keyword gate.
-6. Analyze impact directly with Cursor Agent using Git diff and file contents as static evidence.
+6. Analyze impact directly using Git diff and file contents as static evidence.
 7. Create a Markdown report manually under `tools/api-change-guard/reports/` using the naming style: `api-change-guard-<target>-<shortSha>-<timestamp>.md`.
 8. Reply with the generated report link first, then paste the complete report content below it.
-9. If the user wants deeper AI analysis, read the matching prompt in `tools/api-change-guard/prompts/` and apply it to the collected Git/file evidence.
+9. If deeper analysis is needed, read the matching prompt in `tools/api-change-guard/prompts/` and apply it to the collected Git/file evidence.
 10. Return a Chinese Markdown report using the stable structure below.
 
 ## **Response Contract**
 
 The final answer must include both the report link and the report body. Do not return only the link.
+
+All user-facing output must be in Chinese, including progress updates, report content, analysis basis, reasoning summaries, manual confirmation notes, and follow-up suggestions. Do not output English section explanations unless they are code identifiers, commands, file paths, class names, method names, annotations, or quoted source text.
 
 Use this exact order:
 
