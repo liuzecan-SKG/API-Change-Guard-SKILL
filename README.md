@@ -1,12 +1,12 @@
-# **API Change Guard**
+# API Change Guard
 
 API Change Guard 用于分析 Java Spring 后端代码变更的影响范围，并生成面向后端、客户端和测试同学的稳定报告。它的主要目标是判断代码变更是否影响已上线功能，以及需要回归测试哪些范围。
 
-## **推荐仓库结构**
+## 推荐仓库结构
 
 如果将本工具作为独立仓库共享，建议保持以下结构：
 
-```
+```text
 api-change-guard/
   README.md
   SKILL.md
@@ -16,7 +16,6 @@ api-change-guard/
     generate-mockmvc.md
   examples/
     sample-api-change-report.md
-
 ```
 
 其中：
@@ -26,13 +25,21 @@ api-change-guard/
 - `prompts/` 是可选增强 Prompt。
 - `examples/` 是示例报告。
 
-## **支持的输入**
+## 支持的输入
 
-- 当前 Java Git diff：`/api-change-guard analyze diff`
+分析范围模式（默认 `diff`，每种能力都有独立命令）：
+
+- 未提交变更（默认）：`/api-change-guard analyze diff`
+- 功能分支相对主分支累计变更（合并前评估）：`/api-change-guard analyze branch`
+- 最近 N 个提交：`/api-change-guard analyze recent <N>`
+- 仅本人在本分支的提交（commit 口径）：`/api-change-guard analyze mine`
+
+指定目标：
+
 - 指定 Controller 文件：`/api-change-guard analyze controller <ControllerPath>`
 - 指定 Controller 接口：`/api-change-guard analyze endpoint <ControllerPath> <ApiPath>`
 
-## **输出内容**
+## 输出内容
 
 - 生成到 `tools/api-change-guard/reports/` 下的 Markdown 报告文件
 - 已上线功能影响范围总结
@@ -45,99 +52,109 @@ api-change-guard/
 - JUnit / MockMvc 测试骨架
 - 可复制到 Apifox / Postman 的 curl 请求样例
 
-## **安装和使用**
+## 安装和使用
 
-### **通用 Agent 使用方式**
+### 通用 Agent 使用方式
 
 适用于任意能读取项目文件、执行 Git 命令、创建 Markdown 文件的 AI Agent。
 
 1. 将 `SKILL.md` 放到目标项目中，例如：
 
-```
+```text
 tools/api-change-guard/SKILL.md
-
 ```
 
-1. 对 Agent 说：
+2. 对 Agent 说：
 
-```
+```text
 请读取 tools/api-change-guard/SKILL.md，并按照 API Change Guard 流程分析当前 git diff。
-
 ```
 
 或者：
 
-```
+```text
 按照 API Change Guard 的 SKILL.md，分析当前 Java 代码变更对已上线功能的影响范围。
-
 ```
 
-### **Cursor 使用方式**
+### Cursor 使用方式
 
 项目级安装：
 
-```
+```text
 .cursor/skills/api-change-guard/SKILL.md
-
 ```
 
 可以直接复制通用版 `SKILL.md` 到上述路径。
 
 然后在 Cursor 中输入：
 
-```
+```text
 /api-change-guard analyze diff
-
 ```
 
 如果 slash command 未被自动识别，也可以直接输入：
 
-```
+```text
 请读取 .cursor/skills/api-change-guard/SKILL.md，并按照 API Change Guard 流程分析当前 git diff。
-
 ```
 
-### **Claude Code / Codex / 其他 Agent 使用方式**
+### Claude Code / Codex / 其他 Agent 使用方式
 
 将 `SKILL.md` 放到项目根目录或工具目录，然后输入：
 
-```
+```text
 读取 SKILL.md，并按 API Change Guard 流程分析当前 git diff。
-
 ```
 
 如果项目里有多个 `SKILL.md`，建议明确路径：
 
-```
+```text
 读取 tools/api-change-guard/SKILL.md，并按其中规则分析当前 git diff。
-
 ```
 
-## **执行流程**
+## 执行流程
 
 该 MVP 采用“通用 Agent 规则 + Git 命令分析”方案，不依赖 Python，也不需要额外本地运行时。只需要 Git 和一个能读取文件、执行命令、创建 Markdown 文件的 AI Agent 即可使用。
 
-AI Agent 会通过以下 Git 命令收集证据：
+AI Agent 会根据分析模式收集 Git 证据：
 
-```
+```bash
+# 默认：未提交变更
 git diff -- '*.java'
 git diff --cached -- '*.java'
-git diff --name-only -- '*.java'
-git diff --cached --name-only -- '*.java'
-git rev-parse --short HEAD
 
+# 分支累计变更（合并前评估）：先 fetch，base 优先 master，兜底 main
+git fetch origin
+git diff origin/master...HEAD -- '*.java'
+git log origin/master..HEAD --oneline --no-merges
+
+# 最近 N 个提交
+git diff HEAD~<N>...HEAD -- '*.java'
+
+# 仅本人提交（commit 口径，先取 user.email 再填入 --author）
+git config user.email
+git log -p --no-merges --reverse --author="<email>" origin/master..HEAD -- '*.java'
+
+# 报告元数据
+git rev-parse --short HEAD
 ```
+
+说明：
+
+- base 分支优先 `master`，没有则 `main`，再没有用 `git symbolic-ref --short refs/remotes/origin/HEAD` 探测或让用户指定。
+- 分支 / 最近 / 本人模式一定先 `git fetch origin`，且一定对比 `origin/<base>`，不用可能过期的本地分支。
+- `git diff` 用三点 `...`（分叉点以来本分支引入的改动），`git log` 用两点 `..`。
+- `analyze mine` 是 commit 口径过滤，不是“本人净改动 diff”；多人改同一文件无法精确切分，影响分析与回归判断仍以 `branch` 模式为权威基准。
 
 然后 AI Agent 会读取相关的 Controller / DTO / Mapper / Convert / Feign / Logic 文件，基于 Git diff 和文件内容分析影响范围，在 `tools/api-change-guard/reports/` 下生成 Markdown 报告，并返回报告链接和报告正文。
 
 报告文件名包含分析目标、当前 commit 短 SHA 和时间戳，例如：
 
-```
+```text
 tools/api-change-guard/reports/api-change-guard-diff-a1b2c3d-20260605-182900.md
-
 ```
 
-## **回复格式要求**
+## 回复格式要求
 
 最终回复必须同时包含报告链接和报告正文，不能只返回链接。
 
@@ -145,20 +162,19 @@ tools/api-change-guard/reports/api-change-guard-diff-a1b2c3d-20260605-182900.md
 
 固定顺序：
 
-```
+```markdown
 报告文件：[<filename>](<relative-path>)
 
 # API Change Guard 变更影响分析报告
 
 ...完整报告正文...
-
 ```
 
 如果报告很长，也不能只总结报告；必须保留报告结构中的核心章节。必要时只能压缩较长的代码块或请求样例。
 
-## **报告结构**
+## 报告结构
 
-```
+```markdown
 ## 结论先行
 ## 变更影响范围
 ### 已有功能影响
@@ -199,21 +215,22 @@ tools/api-change-guard/reports/api-change-guard-diff-a1b2c3d-20260605-182900.md
 ## Apifox / Postman 请求样例
 ## 待人工确认项
 ## 次要代码质量提示
-
 ```
 
-## **大 Diff 分析规则**
+## 大 Diff 分析规则
 
 - `<= 10` 个 Java 文件：全量分析。
 - `11-30` 个 Java 文件：全量分析 Controller、DTO、Feign；Mapper / Logic 做摘要分析；其他文件只列出。
 - `> 30` 个 Java 文件：进入大 diff 模式，只深度分析接口相关文件，其余列入未覆盖范围。
 - 文件优先级：Controller、DTO / VO / BO / Request / Response、Feign / Remote Client、Mapper / Convert / Service / Logic、其他 Java 文件。
 - 非 Controller 文件只有命中 API 关键词时才深度分析，例如 mapping 注解、`@RequestBody`、`@Schema`、校验注解、`CommonResult`、`DataCollectDto`、`FeignClient`。
+- 分支 / 最近模式分批：分支累计 diff 通常更大，先用 `git diff --stat origin/master...HEAD` 估规模；超过深度分析上限时，按 commit 或模块分批分析，而不是直接截断，避免漏掉非 Controller 的核心逻辑改动。
+- 在“分析覆盖范围”记录 commit 数与分析批次；未展开的文件列入“未覆盖风险”。
 
-## **可靠性规则**
+## 可靠性规则
 
 - Git diff 和文件内容是事实依据。
-- 测试源码不纳入评审范围，忽略 `src/test/`**、`*Test.java` 和测试专用 diff。
+- 测试源码不纳入评审范围，忽略 `src/test/**`、`*Test.java` 和测试专用 diff。
 - 注释掉的 Controller 代码不视为真实接口。
 - 报告应以影响范围为中心，先判断是否影响已上线功能，再补充代码质量提示。
 - 必须明确回归测试范围。
@@ -226,18 +243,18 @@ tools/api-change-guard/reports/api-change-guard-diff-a1b2c3d-20260605-182900.md
 - 影响范围不是最终事实，报告必须给出概率和依据。
 - 如果收集到的证据有限，仍需输出可读报告，并明确待人工确认项。
 
-## **已知限制**
+## 已知限制
 
 - MVP 依赖 AI Agent 直接理解 Git diff 和 Java 文件，因此分析质量取决于可获得的 diff 和文件证据。
 - 多行方法签名、深层泛型 DTO 可能需要人工复核。
 - Feign、Mapper 和前端调用方分析在 MVP 阶段可能会被标记为待人工确认。
 - 生成的测试代码默认基于 JUnit 5、Spring Boot Test 和 MockMvc，项目特定的鉴权、租户 Header、Service Mock 需要开发自行补充。
 
-## **误判记录**
+## 误判记录
 
 当工具输出错误或不够准确的结论时，建议按以下格式记录，便于后续优化 Skill：
 
-```
+```markdown
 ### Case: <short title>
 
 - Input: Controller 路径、接口路径或 diff 摘要
@@ -245,4 +262,3 @@ tools/api-change-guard/reports/api-change-guard-diff-a1b2c3d-20260605-182900.md
 - Expected output: 评审期望的正确结论
 - Fix rule: 需要更新的 Skill 规则、Prompt 规则或人工确认规则
 ```
-

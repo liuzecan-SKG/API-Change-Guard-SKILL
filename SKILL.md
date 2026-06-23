@@ -1,47 +1,114 @@
 ---
 name: api-change-guard
-description: Analyze Java Spring backend code changes for impact scope, regression testing needs, API compatibility risks, and affected online functionality. Use when reviewing Git diffs involving Controller, DTO, Mapper, Convert, Feign, Logic, validation annotations, Swagger/OpenAPI annotations, or data upload protocols.
+description: Analyze Java Spring backend code changes for impact scope, regression testing needs, and API compatibility risks. Works on uncommitted changes, a feature branch's cumulative diff vs master before merge, the last N commits, or the current author's commits. Use when reviewing Git diffs involving Controller, DTO, Mapper, Convert, Feign, Logic, validation or Swagger annotations, or data upload protocols.
 ---
 
-# **API Change Guard**
+# API Change Guard
 
 Use this skill to analyze the impact scope of backend code changes before testing, review, or client synchronization. Its primary goal is to identify whether new requirements, bug fixes, field changes, method logic changes, or new methods affect existing online functionality and what regression testing is needed. Code quality review is secondary.
 
-## **How To Invoke**
+## How To Invoke
 
 Any AI agent can use this skill by reading this file and following the workflow.
 
 Suggested prompts:
 
 - `按照 API Change Guard 的 SKILL.md，分析当前 git diff`
-- `按照 API Change Guard 的 SKILL.md，分析这个 Controller 的接口影响`
-- `按照 API Change Guard 的 SKILL.md，分析指定接口路径的变更影响`
+- `按照 API Change Guard 的 SKILL.md，分析当前分支相对 master 的累计变更`
+- `按照 API Change Guard 的 SKILL.md，分析最近 3 个提交`
+- `按照 API Change Guard 的 SKILL.md，只分析我本人在当前分支的提交`
 
-Cursor users may also use:
+Commands:
 
-- `/api-change-guard analyze diff`
+- `/api-change-guard analyze diff` — uncommitted changes (default)
+- `/api-change-guard analyze branch` — branch cumulative changes vs base, for pre-merge review
+- `/api-change-guard analyze recent <N>` — last N commits
+- `/api-change-guard analyze mine` — current author's commits on this branch (commit scope)
 - `/api-change-guard analyze controller <ControllerPath>`
 - `/api-change-guard analyze endpoint <ControllerPath> <ApiPath>`
 - `/api-change-guard generate-test <ControllerPath> <ApiPath>`
 
-## **Workflow**
+## Workflow
 
-1. Determine the command type or user intent.
-2. Collect Git evidence from the repository root:
-  - Diff command: `git diff -- '*.java'`
-  - Staged diff command: `git diff --cached -- '*.java'`
-  - Changed-file list: `git diff --name-only -- '*.java'` and `git diff --cached --name-only -- '*.java'`
-  - Report metadata: `git rev-parse --short HEAD` and current timestamp
-3. Exclude `src/test/`**, `*Test.java`, and test-only diffs.
+1. Determine the analysis mode (default `diff`) or command type / user intent.
+2. Collect Git evidence according to the chosen mode (see `## Analysis Modes`). Also collect report metadata: `git rev-parse --short HEAD` and current timestamp.
+3. Exclude `src/test/**`, `*Test.java`, and test-only diffs.
 4. Group changed Java files by the priority and threshold rules below.
 5. Read relevant Controller / DTO / Mapper / Convert / Feign / Logic files according to the large diff limits and API keyword gate.
 6. Analyze impact directly using Git diff and file contents as static evidence.
-7. Create a Markdown report manually under `tools/api-change-guard/reports/` using the naming style: `api-change-guard-<target>-<shortSha>-<timestamp>.md`.
+7. Create a Markdown report manually under `tools/api-change-guard/reports/` using the naming style: `api-change-guard-<mode>-<shortSha>-<timestamp>.md`.
 8. Reply with the generated report link first, then paste the complete report content below it.
 9. If deeper analysis is needed, read the matching prompt in `tools/api-change-guard/prompts/` and apply it to the collected Git/file evidence.
 10. Return a Chinese Markdown report using the stable structure below.
 
-## **Response Contract**
+## Analysis Modes
+
+Four diff-collection modes. Default is `diff`. Each mode maps to one command. Every mode still excludes `src/test/**`, `*Test.java`, and test-only diffs, and still follows `Large Diff Rules`, `Required Report Structure`, and `Response Contract`.
+
+On Windows PowerShell, run commands one per line; do not join them with `&&`.
+
+### Base Branch Resolution (branch / recent / mine modes)
+
+1. Use `master` if `origin/master` exists.
+2. Else use `main` if `origin/main` exists.
+3. Else detect with `git symbolic-ref --short refs/remotes/origin/HEAD`.
+4. Else ask the user to specify the base branch.
+
+Always `git fetch origin` first, and always compare against `origin/<base>` (never the local branch, which may be stale).
+
+```bash
+git fetch origin
+git rev-parse --verify origin/master
+# if missing, try: git rev-parse --verify origin/main
+# if still missing: git symbolic-ref --short refs/remotes/origin/HEAD
+```
+
+### Mode `diff` (default) — uncommitted changes
+
+```bash
+git diff -- '*.java'
+git diff --cached -- '*.java'
+git diff --name-only -- '*.java'
+git diff --cached --name-only -- '*.java'
+```
+
+### Mode `branch` — branch cumulative changes vs base (pre-merge review)
+
+Use three-dot `...` for diff (changes this branch introduced since the merge-base) and two-dot `..` for log:
+
+```bash
+git fetch origin
+git diff origin/master...HEAD -- '*.java'
+git diff --name-only origin/master...HEAD -- '*.java'
+git log origin/master..HEAD --oneline --no-merges
+```
+
+### Mode `recent <N>` — last N commits
+
+```bash
+git diff HEAD~<N>...HEAD -- '*.java'
+git diff --name-only HEAD~<N>...HEAD -- '*.java'
+git log HEAD~<N>..HEAD --oneline
+```
+
+### Mode `mine` — current author's commits on this branch (commit scope only)
+
+Per-author attribution of a cumulative diff is theoretically NOT solvable line-by-line (patches do not commute; overlapping edits and deletions cannot be split cleanly). Use commit scope; never fabricate a clean per-author net diff.
+
+```bash
+git fetch origin
+git config user.email
+git log -p --no-merges --reverse --author="<email>" origin/master..HEAD -- '*.java'
+git log --no-merges --author="<email>" origin/master..HEAD --name-only --pretty=format: -- '*.java'
+```
+
+When using `mine`, the report MUST state these limits (in Chinese):
+
+- 这是 commit 口径过滤，不是“本人净改动 diff”；多人改同一文件或同一行时无法精确切分。
+- commit 口径可能包含中间态，以及之后被他人覆盖的改动。
+- 影响分析与回归判断仍以分支累计 diff（`branch` 模式）为权威基准，`mine` 仅用于缩小关注范围。
+
+## Response Contract
 
 The final answer must include both the report link and the report body. Do not return only the link.
 
@@ -55,7 +122,7 @@ Use this exact order:
 
 Never summarize the report instead of pasting it. If the report is very long, still paste the sections required by `Required Report Structure`; only compress long code blocks or request samples when necessary.
 
-## **Analysis Priority**
+## Analysis Priority
 
 Analyze in this order:
 
@@ -66,11 +133,11 @@ Analyze in this order:
 5. Manual confirmations: callers, config, protocol, historical data, and cross-service effects that cannot be proven from code.
 6. Secondary code quality hints: only mention issues that may affect functional correctness. Do not perform a full code review.
 
-## **Large Diff Rules**
+## Large Diff Rules
 
 When Java changed files are many, do not analyze the entire diff in one pass. Use "先分流、再限界、再抽样、最后明确未覆盖范围".
 
-### **File Priority**
+### File Priority
 
 Analyze in this order:
 
@@ -82,17 +149,17 @@ Analyze in this order:
 
 Always exclude:
 
-- `src/test/`**
+- `src/test/**`
 - `*Test.java`
 - test-only diffs
 
-### **Thresholds**
+### Thresholds
 
 - `<= 10` Java files: full analysis.
 - `11-30` Java files: fully analyze Controller, DTO, and Feign files; summarize Mapper/Logic files; list other files.
 - `> 30` Java files: large diff mode. Only deep analyze API-related files; list the rest as uncovered.
 
-### **Per-Type Read Limits**
+### Per-Type Read Limits
 
 - Controller: max 10 files
 - DTO / VO / BO / Request / Response: max 20 files
@@ -100,7 +167,7 @@ Always exclude:
 - Mapper / Convert / Service / Logic: max 10 files
 - Other Java files: do not read by default
 
-### **API Keyword Gate**
+### API Keyword Gate
 
 Only deep analyze a non-Controller file if its diff contains one of:
 
@@ -121,23 +188,32 @@ Only deep analyze a non-Controller file if its diff contains one of:
 - `DataCollectDto`
 - `FeignClient`
 
-### **Required Coverage Section**
+### Branch / Recent Mode Sizing
+
+`branch` and `recent` cumulative diffs are usually larger than a single uncommitted diff, so they hit the thresholds above more often. Do not silently truncate non-Controller changes that matter for a pre-merge review:
+
+1. Size first: `git diff --stat origin/master...HEAD`.
+2. If file count exceeds the deep-analysis limits, prefer batching over truncation: analyze by commit (`git log origin/master..HEAD`) or by module/package, so core Logic/Service changes are not skipped.
+3. Record commit count and analysis batches in `## 分析覆盖范围`; list any skipped files under `## 未覆盖风险`.
+
+### Required Coverage Section
 
 Every report must include `## 分析覆盖范围` with:
 
+- 分析模式与范围（mode、base 分支、commit 范围、实际使用的 diff 命令）
 - Java 变更文件数
 - 已展开分析
 - 摘要分析
 - 未展开分析
 - 已排除测试文件
 
-### **Required Uncovered Risk Section**
+### Required Uncovered Risk Section
 
 If any file is not deeply analyzed, include `## 未覆盖风险` and list files that may still contain API impact. Also ask reviewers to confirm response shape changes, DTO conversion omissions, Feign caller changes, and hidden logic branch changes.
 
-## **Required Report Structure**
+## Required Report Structure
 
-```
+```markdown
 ## 结论先行
 ## 变更影响范围
 ### 已有功能影响
@@ -178,13 +254,12 @@ If any file is not deeply analyzed, include `## 未覆盖风险` and list files 
 ## Apifox / Postman 请求样例
 ## 待人工确认项
 ## 次要代码质量提示
-
 ```
 
-## **Analysis Rules**
+## Analysis Rules
 
 - Treat Git diff and file contents as facts.
-- Exclude test sources from review scope: ignore `src/test/`**, `*Test.java`, and test-only diffs.
+- Exclude test sources from review scope: ignore `src/test/**`, `*Test.java`, and test-only diffs.
 - Separate facts, estimates, and manual confirmations.
 - Do not invent client callers. Impact range must include evidence and probability.
 - Highlight added required fields, removed fields, type changes, validation changes, enum changes, and response structure changes.
@@ -195,7 +270,7 @@ If any file is not deeply analyzed, include `## 未覆盖风险` and list files 
 - For watch/4G/Bluetooth upload DTOs, call out `@Watch4gDataLength` field order, length, count-field, and client protocol compatibility when evidence is available.
 - Generated MockMvc code is a skeleton. Tell developers to fill service mocks and project-specific error-code assertions.
 
-## **Company Backend Checks**
+## Company Backend Checks
 
 Check these items when evidence is available:
 
@@ -204,4 +279,3 @@ Check these items when evidence is available:
 - Swagger annotations are present: `@Operation`, `@Schema`, or related OpenAPI annotations.
 - Compatibility risk is called out when request fields become required.
 - Client impact is estimated for APP, mini program, admin console, backend services, and device upload flows.
-
